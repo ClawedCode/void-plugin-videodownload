@@ -1,0 +1,12 @@
+# Dependencies
+node_modules/
+
+# Browser profile data (contains auth cookies)
+data/browser-profile/
+
+# Downloaded videos
+data/videos/
+
+# OS files
+.DS_Store
+Thumbs.db

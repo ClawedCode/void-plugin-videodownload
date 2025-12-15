@@ -1,0 +1,9 @@
+{
+  "name": "void-plugin-videodownload",
+  "version": "1.0.0",
+  "description": "Download videos from X.com with frame extraction",
+  "main": "server/index.js",
+  "dependencies": {
+    "playwright": "^1.40.0"
+  }
+}
