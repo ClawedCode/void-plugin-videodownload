@@ -1,11 +1,27 @@
 const path = require('path');
+const fs = require('fs');
 const VideoDownloader = require('./services/video-downloader');
 
 module.exports = (app, config = {}) => {
   const { mountPath = '/video-download', services = {} } = config;
   const PLUGIN_ROOT = path.join(__dirname, '..');
-  const VIDEOS_DIR = path.join(PLUGIN_ROOT, 'data', 'videos');
-  const videoDownloader = new VideoDownloader(PLUGIN_ROOT);
+
+  // Use main app data directory (v2.0.0+) or fall back to legacy plugin location
+  const LEGACY_VIDEOS_DIR = path.join(PLUGIN_ROOT, 'data', 'videos');
+  const MAIN_DATA_DIR = path.join(__dirname, '../../../data/video-downloads');
+  const VIDEOS_DIR = fs.existsSync(path.join(__dirname, '../../../data')) ? MAIN_DATA_DIR : LEGACY_VIDEOS_DIR;
+
+  // Migrate legacy data if needed
+  if (fs.existsSync(LEGACY_VIDEOS_DIR) && !fs.existsSync(MAIN_DATA_DIR)) {
+    const targetDir = path.dirname(MAIN_DATA_DIR);
+    if (fs.existsSync(targetDir)) {
+      fs.cpSync(LEGACY_VIDEOS_DIR, MAIN_DATA_DIR, { recursive: true });
+      fs.rmSync(LEGACY_VIDEOS_DIR, { recursive: true, force: true });
+      console.log(`📦 Migrated video downloads to data/video-downloads/`);
+    }
+  }
+
+  const videoDownloader = new VideoDownloader(VIDEOS_DIR);
 
   // Get services from core
   const browserService = services.browserService || null;

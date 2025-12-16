@@ -9,9 +9,8 @@ const path = require('path');
  * Requires a browser profile to be created and authenticated via the Browsers page.
  */
 class VideoDownloader {
-  constructor(pluginRoot) {
-    this.PLUGIN_ROOT = pluginRoot;
-    this.VIDEOS_DIR = path.join(pluginRoot, 'data', 'videos');
+  constructor(videosDir) {
+    this.VIDEOS_DIR = videosDir;
   }
 
   log(message, level = 'info') {
