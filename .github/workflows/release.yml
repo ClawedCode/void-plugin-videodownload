@@ -1,0 +1,71 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Read manifest for description
+        id: manifest
+        run: |
+          DESCRIPTION=$(jq -r '.description // "Void Server Plugin"' manifest.json)
+          echo "description=$DESCRIPTION" >> $GITHUB_OUTPUT
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          VERSION_NUM="${VERSION#v}"
+
+          # Try to extract from CHANGELOG.md if it exists
+          if [ -f "CHANGELOG.md" ]; then
+            NOTES=$(awk "/^## \[${VERSION_NUM}\]/{found=1; next} /^## \[/{found=0} found" CHANGELOG.md)
+          fi
+
+          # If no changelog or empty, generate from manifest
+          if [ -z "$NOTES" ]; then
+            NOTES="## ${{ steps.manifest.outputs.description }}
+
+### Installation
+
+\`\`\`bash
+# Via void-server plugin manager
+curl -X POST http://localhost:4420/api/plugins/install \\
+  -H 'Content-Type: application/json' \\
+  -d '{\"source\": \"https://github.com/${{ github.repository }}/archive/refs/tags/${VERSION}.zip\"}'
+
+# Or download the zip and extract to data/plugins/
+\`\`\`
+
+### Requirements
+
+- void-server $(jq -r '.minServerVersion // "0.8.0"' manifest.json)+
+"
+          fi
+
+          # Write to file to preserve newlines
+          echo "$NOTES" > /tmp/notes.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.version }}
+          body_path: /tmp/notes.txt
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+          generate_release_notes: false
