@@ -1,7 +1,7 @@
 {
   "name": "void-plugin-videodownload",
-  "version": "2.1.0",
-  "minServerVersion": "0.13.4",
+  "version": "2.2.0",
+  "minServerVersion": "0.14.0",
   "description": "Download videos from X.com with automatic frame extraction for LLM analysis",
   "server": {
     "entry": "server/index.js"
@@ -17,11 +17,11 @@
     ]
   },
   "nav": {
-    "section": null,
+    "section": "Tools",
     "title": "Video Download",
     "icon": "download"
   },
-  "defaultMountPath": "/video-download",
+  "defaultMountPath": "/tools/video-download",
   "dependencies": {
     "runtime": ["react-hot-toast", "lucide-react"],
     "devDependencies": []
