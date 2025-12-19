@@ -38,23 +38,19 @@ jobs:
 
           # If no changelog or empty, generate from manifest
           if [ -z "$NOTES" ]; then
-            NOTES="## ${{ steps.manifest.outputs.description }}
+            MIN_VERSION=$(jq -r '.minServerVersion // "0.8.0"' manifest.json)
+            NOTES=$(cat <<EOF
+## ${{ steps.manifest.outputs.description }}
 
 ### Installation
 
-\`\`\`bash
-# Via void-server plugin manager
-curl -X POST http://localhost:4420/api/plugins/install \\
-  -H 'Content-Type: application/json' \\
-  -d '{\"source\": \"https://github.com/${{ github.repository }}/archive/refs/tags/${VERSION}.zip\"}'
-
-# Or download the zip and extract to data/plugins/
-\`\`\`
+Download the release zip and extract to your void-server \`data/plugins/\` directory.
 
 ### Requirements
 
-- void-server $(jq -r '.minServerVersion // "0.8.0"' manifest.json)+
-"
+- void-server ${MIN_VERSION}+
+EOF
+)
           fi
 
           # Write to file to preserve newlines
