@@ -39,18 +39,16 @@ jobs:
           # If no changelog or empty, generate from manifest
           if [ -z "$NOTES" ]; then
             MIN_VERSION=$(jq -r '.minServerVersion // "0.8.0"' manifest.json)
-            NOTES=$(cat <<EOF
-## ${{ steps.manifest.outputs.description }}
+            NOTES="## ${{ steps.manifest.outputs.description }}"
+            NOTES="${NOTES}
 
 ### Installation
 
-Download the release zip and extract to your void-server \`data/plugins/\` directory.
+Download the release zip and extract to your void-server data/plugins/ directory.
 
 ### Requirements
 
-- void-server ${MIN_VERSION}+
-EOF
-)
+- void-server ${MIN_VERSION}+"
           fi
 
           # Write to file to preserve newlines
