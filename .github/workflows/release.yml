@@ -39,20 +39,20 @@ jobs:
           # If no changelog or empty, generate from manifest
           if [ -z "$NOTES" ]; then
             MIN_VERSION=$(jq -r '.minServerVersion // "0.8.0"' manifest.json)
-            NOTES="## ${{ steps.manifest.outputs.description }}"
-            NOTES="${NOTES}
-
-### Installation
-
-Download the release zip and extract to your void-server data/plugins/ directory.
-
-### Requirements
-
-- void-server ${MIN_VERSION}+"
+            {
+              echo "## ${{ steps.manifest.outputs.description }}"
+              echo ""
+              echo "### Installation"
+              echo ""
+              echo "Download the release zip and extract to your void-server data/plugins/ directory."
+              echo ""
+              echo "### Requirements"
+              echo ""
+              echo "- void-server ${MIN_VERSION}+"
+            } > /tmp/notes.txt
+          else
+            echo "$NOTES" > /tmp/notes.txt
           fi
-
-          # Write to file to preserve newlines
-          echo "$NOTES" > /tmp/notes.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
