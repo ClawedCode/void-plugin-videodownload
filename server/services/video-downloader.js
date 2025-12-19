@@ -1,6 +1,9 @@
 const { spawn } = require('child_process');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const path = require('path');
+const https = require('https');
+const http = require('http');
 
 /**
  * Video Downloader Service
@@ -9,8 +12,9 @@ const path = require('path');
  * Requires a browser profile to be created and authenticated via the Browsers page.
  */
 class VideoDownloader {
-  constructor(videosDir) {
+  constructor(videosDir, ffmpegService = null) {
     this.VIDEOS_DIR = videosDir;
+    this.ffmpegService = ffmpegService;
   }
 
   log(message, level = 'info') {
@@ -40,26 +44,55 @@ class VideoDownloader {
   }
 
   /**
-   * Check if ffmpeg is installed
+   * Check if ffmpeg is available
    */
   async checkFfmpeg() {
+    if (this.ffmpegService) {
+      return this.ffmpegService.isFfmpegAvailable();
+    }
+    // Fallback: cross-platform check
+    const isWindows = process.platform === 'win32';
+    const cmd = isWindows ? 'where' : 'which';
     return new Promise((resolve) => {
-      const check = spawn('which', ['ffmpeg']);
+      const check = spawn(cmd, ['ffmpeg'], { shell: isWindows, windowsHide: true });
       check.on('close', (code) => resolve(code === 0));
+      check.on('error', () => resolve(false));
     });
+  }
+
+  /**
+   * Get ffmpeg path (auto-downloads if needed when ffmpegService is available)
+   */
+  async getFfmpegPath() {
+    if (this.ffmpegService) {
+      return this.ffmpegService.getFfmpegPath();
+    }
+    return 'ffmpeg'; // Fallback to PATH
+  }
+
+  /**
+   * Get ffprobe path (auto-downloads if needed when ffmpegService is available)
+   */
+  async getFfprobePath() {
+    if (this.ffmpegService) {
+      return this.ffmpegService.getFfprobePath();
+    }
+    return 'ffprobe'; // Fallback to PATH
   }
 
   /**
    * Get video duration using ffprobe
    */
   async getVideoDuration(videoPath) {
+    const ffprobePath = await this.getFfprobePath();
+
     return new Promise((resolve, reject) => {
-      const ffprobe = spawn('ffprobe', [
+      const ffprobe = spawn(ffprobePath, [
         '-v', 'error',
         '-show_entries', 'format=duration',
         '-of', 'default=noprint_wrappers=1:nokey=1',
         videoPath
-      ]);
+      ], { windowsHide: true });
 
       let output = '';
       ffprobe.stdout.on('data', (data) => { output += data.toString(); });
@@ -67,6 +100,7 @@ class VideoDownloader {
         if (code === 0) resolve(parseFloat(output.trim()));
         else reject(new Error('Failed to get video duration'));
       });
+      ffprobe.on('error', reject);
     });
   }
 
@@ -74,6 +108,7 @@ class VideoDownloader {
    * Extract frames from video at specific positions
    */
   async extractFrames(videoPath, outputDir, count = 5) {
+    const ffmpegPath = await this.getFfmpegPath();
     const duration = await this.getVideoDuration(videoPath);
     const frames = [];
 
@@ -89,14 +124,14 @@ class VideoDownloader {
       const framePath = path.join(outputDir, `frame_${i + 1}.jpg`);
 
       await new Promise((resolve, reject) => {
-        const ffmpeg = spawn('ffmpeg', [
+        const ffmpeg = spawn(ffmpegPath, [
           '-ss', timestamp.toString(),
           '-i', videoPath,
           '-vframes', '1',
           '-q:v', '2',
           '-y',
           framePath
-        ]);
+        ], { windowsHide: true });
 
         ffmpeg.on('close', (code) => {
           if (code === 0) {
@@ -107,10 +142,61 @@ class VideoDownloader {
             reject(new Error(`Failed to extract frame ${i + 1}`));
           }
         });
+        ffmpeg.on('error', reject);
       });
     }
 
     return frames;
+  }
+
+  /**
+   * Download file using Node.js https (cross-platform, no curl dependency)
+   */
+  downloadFileHttp(url, destPath) {
+    return new Promise((resolve, reject) => {
+      const protocol = url.startsWith('https') ? https : http;
+
+      const makeRequest = (currentUrl, redirectCount = 0) => {
+        if (redirectCount > 10) {
+          reject(new Error('Too many redirects'));
+          return;
+        }
+
+        protocol.get(currentUrl, (response) => {
+          // Handle redirects
+          if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+            let redirectUrl = response.headers.location;
+            // Handle relative redirects
+            if (redirectUrl.startsWith('/')) {
+              const urlObj = new URL(currentUrl);
+              redirectUrl = `${urlObj.protocol}//${urlObj.host}${redirectUrl}`;
+            }
+            makeRequest(redirectUrl, redirectCount + 1);
+            return;
+          }
+
+          if (response.statusCode !== 200) {
+            reject(new Error(`Download failed: ${response.statusCode}`));
+            return;
+          }
+
+          const file = fsSync.createWriteStream(destPath);
+          response.pipe(file);
+
+          file.on('finish', () => {
+            file.close();
+            resolve(destPath);
+          });
+
+          file.on('error', (err) => {
+            fsSync.unlinkSync(destPath);
+            reject(err);
+          });
+        }).on('error', reject);
+      };
+
+      makeRequest(url);
+    });
   }
 
   /**
@@ -168,7 +254,6 @@ class VideoDownloader {
     }
 
     await page.close();
-    await context.close();
 
     if (videoUrls.length === 0) {
       throw new Error('No video found in this tweet');
@@ -259,15 +344,18 @@ class VideoDownloader {
 
     this.log(`Downloading video...`);
 
-    return new Promise((resolve, reject) => {
-      if (isHLS) {
-        const ffmpeg = spawn('ffmpeg', [
+    if (isHLS) {
+      // HLS requires ffmpeg to download
+      const ffmpegPath = await this.getFfmpegPath();
+
+      return new Promise((resolve, reject) => {
+        const ffmpeg = spawn(ffmpegPath, [
           '-i', downloadUrl,
           '-c', 'copy',
           '-bsf:a', 'aac_adtstoasc',
           '-y',
           outputPath
-        ]);
+        ], { windowsHide: true });
 
         ffmpeg.on('close', (code) => {
           if (code === 0) {
@@ -279,36 +367,30 @@ class VideoDownloader {
         });
 
         ffmpeg.on('error', (err) => reject(err));
-      } else {
-        const curl = spawn('curl', ['-L', '-o', outputPath, '-s', downloadUrl]);
-
-        curl.on('close', (code) => {
-          if (code === 0) {
-            this.log('Video downloaded successfully', 'success');
-            resolve(outputPath);
-          } else {
-            reject(new Error('Failed to download video'));
-          }
-        });
-
-        curl.on('error', (err) => reject(err));
-      }
-    });
+      });
+    } else {
+      // Direct MP4 download using Node.js https (cross-platform)
+      await this.downloadFileHttp(downloadUrl, outputPath);
+      this.log('Video downloaded successfully', 'success');
+      return outputPath;
+    }
   }
 
   /**
    * Get total frame count from video using ffprobe
    */
   async getTotalFrameCount(videoPath) {
+    const ffprobePath = await this.getFfprobePath();
+
     return new Promise((resolve, reject) => {
-      const ffprobe = spawn('ffprobe', [
+      const ffprobe = spawn(ffprobePath, [
         '-v', 'error',
         '-select_streams', 'v:0',
         '-count_frames',
         '-show_entries', 'stream=nb_read_frames',
         '-of', 'default=noprint_wrappers=1:nokey=1',
         videoPath
-      ]);
+      ], { windowsHide: true });
 
       let output = '';
       ffprobe.stdout.on('data', (data) => { output += data.toString(); });
@@ -316,6 +398,7 @@ class VideoDownloader {
         if (code === 0) resolve(parseInt(output.trim()) || 0);
         else reject(new Error('Failed to get frame count'));
       });
+      ffprobe.on('error', reject);
     });
   }
 
@@ -323,20 +406,20 @@ class VideoDownloader {
    * Extract all frames from video
    */
   async extractAllFrames(videoPath, outputDir) {
+    const ffmpegPath = await this.getFfmpegPath();
     this.log('Extracting all frames from video...');
 
     return new Promise((resolve, reject) => {
-      const ffmpeg = spawn('ffmpeg', [
+      const ffmpeg = spawn(ffmpegPath, [
         '-i', videoPath,
         '-q:v', '2',
         '-y',
         path.join(outputDir, 'frame_%d.jpg')
-      ]);
+      ], { windowsHide: true });
 
       ffmpeg.on('close', async (code) => {
         if (code === 0) {
           // Get list of extracted frames
-          const fs = require('fs').promises;
           const files = await fs.readdir(outputDir);
           const frames = files
             .filter(f => f.startsWith('frame_') && f.endsWith('.jpg'))
@@ -353,6 +436,7 @@ class VideoDownloader {
           reject(new Error('Failed to extract all frames'));
         }
       });
+      ffmpeg.on('error', reject);
     });
   }
 
@@ -363,12 +447,11 @@ class VideoDownloader {
     const { frameCount = 5 } = options;
     const shouldExtractFrames = frameCount === 'all' || (typeof frameCount === 'number' && frameCount > 0);
 
-    // Validate ffmpeg
+    // Get ffmpeg path (auto-downloads if needed when ffmpegService is available)
     if (shouldExtractFrames) {
-      const hasFfmpeg = await this.checkFfmpeg();
-      if (!hasFfmpeg) {
-        throw new Error('ffmpeg is not installed. Install with: brew install ffmpeg');
-      }
+      this.log('Checking ffmpeg availability...');
+      const ffmpegPath = await this.getFfmpegPath();
+      this.log(`Using ffmpeg: ${ffmpegPath}`);
     }
 
     const tweetId = this.extractTweetId(url);

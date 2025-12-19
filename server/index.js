@@ -21,11 +21,13 @@ module.exports = (app, config = {}) => {
     }
   }
 
-  const videoDownloader = new VideoDownloader(VIDEOS_DIR);
-
   // Get services from core
   const browserService = services.browserService || null;
+  const ffmpegService = services.ffmpegService || null;
   const express = services.express || null;
+
+  // Pass ffmpegService to VideoDownloader for cross-platform ffmpeg support
+  const videoDownloader = new VideoDownloader(VIDEOS_DIR, ffmpegService);
 
   if (!browserService) {
     console.log('⚠️ [VideoDownload] Core browser service not available');

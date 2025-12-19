@@ -1,7 +1,7 @@
 {
   "name": "void-plugin-videodownload",
-  "version": "2.0.0",
-  "minServerVersion": "0.8.0",
+  "version": "2.1.0",
+  "minServerVersion": "0.13.4",
   "description": "Download videos from X.com with automatic frame extraction for LLM analysis",
   "server": {
     "entry": "server/index.js"
